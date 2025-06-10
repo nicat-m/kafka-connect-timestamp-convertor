@@ -2,10 +2,7 @@
 
 ### This plugin convert type of field from string to timestamp
 
-```
 [Download Plugin](./plugin)
-```
-
 
 
 ```
