@@ -34,7 +34,7 @@ plugin.path=/opt/kafka/plugins
 
   "transforms": "convertTime"
   "transforms.convertTime.type": "az.devcloud.kafka.connect.convertor.ConvertToTimestamp",
-  "transforms.convertTime.field.name": "transaction_date",
+  "transforms.convertTime.field.names": "transaction_date,insert_date",
   "transforms.convertTime.timezone": "Asia/Baku"
   "transforms.convertTime.input.format": "auto", 
   "transforms.convertTime.timezone": "Asia/Baku",
