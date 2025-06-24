@@ -10,8 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.*;
+import java.util.*;
 import java.util.Date;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 public class ConvertToTimestamp<R extends ConnectRecord<R>> implements Transformation<R> {
 
@@ -19,25 +20,25 @@ public class ConvertToTimestamp<R extends ConnectRecord<R>> implements Transform
     private static final ZoneId DEFAULT_ZONE = ZoneId.of("Asia/Baku");
 
     public static final ConfigDef CONFIG_DEF = new ConfigDef()
-            .define("field.name", ConfigDef.Type.STRING, ConfigDef.Importance.HIGH,
-                    "Name of the field containing the timestamp to convert")
+            .define("field.names", ConfigDef.Type.LIST, Collections.emptyList(),
+                    ConfigDef.Importance.HIGH, "Comma-separated list of fields containing timestamps to convert")
             .define("timezone", ConfigDef.Type.STRING, DEFAULT_ZONE.getId(),
                     ConfigDef.Importance.MEDIUM, "Target timezone ID")
             .define("input.format", ConfigDef.Type.STRING, "auto",
                     ConfigDef.Importance.MEDIUM, "Input format: 'iso8601', 'epoch_micro', or 'auto'");
 
-    private String fieldName;
+    private List<String> fieldNames;
     private ZoneId targetZone;
     private String inputFormat;
 
     @Override
     public void configure(Map<String, ?> configs) {
         final SimpleConfig config = new SimpleConfig(CONFIG_DEF, configs);
-        this.fieldName = config.getString("field.name");
+        this.fieldNames = config.getList("field.names");
         this.targetZone = ZoneId.of(config.getString("timezone"));
         this.inputFormat = config.getString("input.format");
-        log.info("Configured to convert field '{}' (format: {}) to timezone {}",
-                fieldName, inputFormat, targetZone);
+        log.info("Configured to convert fields {} (format: {}) to timezone {}",
+                fieldNames, inputFormat, targetZone);
     }
 
     @Override
@@ -54,29 +55,33 @@ public class ConvertToTimestamp<R extends ConnectRecord<R>> implements Transform
             return record;
         }
 
-        // Validate field exists
-        if (after.schema().field(fieldName) == null) {
-            throw new DataException("Field '" + fieldName + "' not found in record");
+        // Validate fields exist
+        List<String> missingFields = fieldNames.stream()
+                .filter(f -> after.schema().field(f) == null)
+                .collect(Collectors.toList());
+
+        if (!missingFields.isEmpty()) {
+            throw new DataException("Fields not found in record: " + missingFields);
         }
 
-        // Build new schema with timestamp type
+        // Build new schema with timestamp types for specified fields
         SchemaBuilder schemaBuilder = SchemaBuilder.struct();
         for (Field field : after.schema().fields()) {
             schemaBuilder.field(field.name(),
-                    field.name().equals(fieldName) ? Timestamp.SCHEMA : field.schema());
+                    fieldNames.contains(field.name()) ? Timestamp.SCHEMA : field.schema());
         }
 
-        // Create new struct with converted timestamp
+        // Create new struct with converted timestamps
         Struct newStruct = new Struct(schemaBuilder.build());
         for (Field field : after.schema().fields()) {
-            if (field.name().equals(fieldName)) {
+            if (fieldNames.contains(field.name())) {
                 try {
                     Date converted = convertTimestamp(after.get(field));
                     newStruct.put(field.name(), converted);
-                    log.debug("Converted {} from {} to {}", fieldName,
+                    log.debug("Converted {} from {} to {}", field.name(),
                             after.get(field), converted);
                 } catch (Exception e) {
-                    throw new DataException("Failed to convert timestamp", e);
+                    throw new DataException("Failed to convert timestamp field: " + field.name(), e);
                 }
             } else {
                 newStruct.put(field.name(), after.get(field));
