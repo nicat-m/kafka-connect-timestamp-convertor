@@ -18,22 +18,26 @@ public class ConvertToTimestamp<R extends ConnectRecord<R>> implements Transform
     private static final Logger log = LoggerFactory.getLogger(ConvertToTimestamp.class);
     private static final ZoneId DEFAULT_ZONE = ZoneId.of("Asia/Baku");
 
-    // Updated config definition with field.name
     public static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define("field.name", ConfigDef.Type.STRING, ConfigDef.Importance.HIGH,
                     "Name of the field containing the timestamp to convert")
             .define("timezone", ConfigDef.Type.STRING, DEFAULT_ZONE.getId(),
-                    ConfigDef.Importance.MEDIUM, "Target timezone ID");
+                    ConfigDef.Importance.MEDIUM, "Target timezone ID")
+            .define("input.format", ConfigDef.Type.STRING, "auto",
+                    ConfigDef.Importance.MEDIUM, "Input format: 'iso8601', 'epoch_micro', or 'auto'");
 
     private String fieldName;
     private ZoneId targetZone;
+    private String inputFormat;
 
     @Override
     public void configure(Map<String, ?> configs) {
         final SimpleConfig config = new SimpleConfig(CONFIG_DEF, configs);
         this.fieldName = config.getString("field.name");
         this.targetZone = ZoneId.of(config.getString("timezone"));
-        log.info("Configured to convert field '{}' to timezone {}", fieldName, targetZone);
+        this.inputFormat = config.getString("input.format");
+        log.info("Configured to convert field '{}' (format: {}) to timezone {}",
+                fieldName, inputFormat, targetZone);
     }
 
     @Override
@@ -67,10 +71,10 @@ public class ConvertToTimestamp<R extends ConnectRecord<R>> implements Transform
         for (Field field : after.schema().fields()) {
             if (field.name().equals(fieldName)) {
                 try {
-                    Date converted = convertToTargetTime(after.getString(fieldName));
+                    Date converted = convertTimestamp(after.get(field));
                     newStruct.put(field.name(), converted);
                     log.debug("Converted {} from {} to {}", fieldName,
-                            after.getString(fieldName), converted);
+                            after.get(field), converted);
                 } catch (Exception e) {
                     throw new DataException("Failed to convert timestamp", e);
                 }
@@ -90,8 +94,29 @@ public class ConvertToTimestamp<R extends ConnectRecord<R>> implements Transform
         );
     }
 
-    private Date convertToTargetTime(String timestampStr) {
-        Instant instant = Instant.parse(timestampStr);
+    private Date convertTimestamp(Object timestampValue) {
+        if (timestampValue == null) {
+            return null;
+        }
+
+        Instant instant;
+
+        // Handle different input formats
+        if ("iso8601".equalsIgnoreCase(inputFormat) ||
+                ("auto".equalsIgnoreCase(inputFormat) && timestampValue instanceof String)) {
+            // ISO 8601 string format
+            instant = Instant.parse(timestampValue.toString());
+        } else if ("epoch_micro".equalsIgnoreCase(inputFormat) ||
+                ("auto".equalsIgnoreCase(inputFormat) && timestampValue instanceof Number)) {
+            // Epoch microseconds (like 1697546114548325)
+            long micros = ((Number) timestampValue).longValue();
+            long seconds = micros / 1_000_000;
+            long nanos = (micros % 1_000_000) * 1_000;
+            instant = Instant.ofEpochSecond(seconds, nanos);
+        } else {
+            throw new DataException("Unsupported timestamp format or type for value: " + timestampValue);
+        }
+
         ZonedDateTime zonedTime = instant.atZone(targetZone);
         return Date.from(zonedTime.toInstant());
     }

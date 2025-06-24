@@ -36,5 +36,10 @@ plugin.path=/opt/kafka/plugins
   "transforms.convertTime.type": "az.devcloud.kafka.connect.convertor.ConvertToTimestamp",
   "transforms.convertTime.field.name": "transaction_date",
   "transforms.convertTime.timezone": "Asia/Baku"
+  "transforms.convertTime.input.format": "auto", 
+  "transforms.convertTime.timezone": "Asia/Baku",
+  
+  # input format will be epoch_micro,auto,iso8601
+
   
 ```
